@@ -1,24 +1,25 @@
 const std = @import("std");
 const rl = @import("raylib");
+const Options = @import("Options.zig");
 const StackTrace = @import("StackTrace.zig");
 
 const Ui = @This();
-const icon_img = @embedFile("./dead.png");
 
 msg: []const u8,
 trace: *StackTrace,
+has_panicked: bool = false,
 
-pub fn init(using_raylib: bool, msg: []const u8, trace: *StackTrace) Ui {
-    if (using_raylib) {
+pub fn init(msg: []const u8, trace: *StackTrace) Ui {
+    if (Options.opts.extra_options.using_raylib) {
         rl.CloseWindow();
     }
 
     rl.SetTraceLogLevel(rl.LOG_ERROR);
 
-    const w_height = 750;
-    const w_width = 500;
+    const w_height = Options.opts.extra_options.height;
+    const w_width = Options.opts.extra_options.width;
 
-    rl.InitWindow(w_width, w_height, "Novacrash report!");
+    rl.InitWindow(@intCast(w_width), @intCast(w_height), "Novacrash report!");
     rl.SetTargetFPS(60);
 
     return .{
@@ -28,48 +29,71 @@ pub fn init(using_raylib: bool, msg: []const u8, trace: *StackTrace) Ui {
 }
 
 pub fn deinit(_: *Ui) void {
-    rl.CloseWindow();
 }
 
-fn draw_title(_: *Ui, y: *c_int) void {
-    rl.DrawText("Weh!", 30 + 128, y.*, 64, rl.WHITE);
+fn draw_title(self: *Ui, y: *c_int) !void {
+    rl.DrawText(@ptrCast(Options.opts.catch_phrases[0]), 30 + 128, y.*, 64, Options.opts.extra_options.fg_color);
     y.* += 64;
 
-    rl.DrawText("Your app has reached panic!", 30 + 128, y.*, 22, rl.RAYWHITE);
+    const str = try std.fmt.allocPrintZ(std.heap.page_allocator, "{s} {s} {s}", .{Options.opts.app_name, Options.opts.middle_message, if (self.has_panicked) "panic" else "error" });
+    defer std.heap.page_allocator.free(str);
+
+    rl.DrawText(@ptrCast(str), 30 + 128, y.*, 22, Options.opts.extra_options.fg_color);
 }
 
 pub fn draw(self: *Ui) !void {
-    var img = rl.LoadImageFromMemory(".png", icon_img, icon_img.len);
-    rl.ImageResize(&img, 128, 128);
+    const texture: ?rl.Texture = brk: {
+        if (self.has_panicked) {
+            if (Options.opts.crash_img) |img| {
+                var image = rl.LoadImageFromMemory(".png", @ptrCast(img), @intCast(img.len));
+                rl.ImageResize(&image, 128, 128);
 
-    const texture = rl.LoadTextureFromImage(img);
-    rl.UnloadImage(img);
+                const texture = rl.LoadTextureFromImage(image);
+                rl.UnloadImage(image);
+                break :brk texture;
+            } else {
+                break :brk null;
+            }
+        } else {
+            if (Options.opts.error_img) |img| {
+                var image = rl.LoadImageFromMemory(".png", @ptrCast(img), @intCast(img.len));
+                rl.ImageResize(&image, 128, 128);
 
-    var panelRec: rl.Rectangle = .{ .x = 10, .y = 128 + 50 + 10, .width = @as(f32, @floatFromInt(rl.GetScreenWidth())) - 20, .height = 0 };
+                const texture = rl.LoadTextureFromImage(image);
+                rl.UnloadImage(image);
+                break :brk texture;
+            } else {
+                break :brk null;
+            }
+        }
+    };
+
+    var panelRec: rl.Rectangle = .{ .x = 10, .y = 128 + 50 + 10 + 32, .width = @as(f32, @floatFromInt(rl.GetScreenWidth())) - 20, .height = 0 };
     panelRec.height = @as(f32, @floatFromInt(rl.GetScreenHeight())) - panelRec.y - 10;
 
     var panelContentRec: rl.Rectangle = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     var panelView: rl.Rectangle  = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     var panelScroll: rl.Vector2 = .{ .x = 0, .y = 0, };
 
-    rl.GuiSetStyle(rl.DEFAULT, rl.BACKGROUND_COLOR, 0x161616FF);
+    rl.GuiSetStyle(rl.DEFAULT, rl.BACKGROUND_COLOR, @bitCast(Options.opts.extra_options.bg_color));
     rl.GuiSetStyle(rl.DEFAULT, rl.BORDER_WIDTH, 0);
 
     while (!rl.WindowShouldClose()) {
         var y: c_int = 20;
 
         rl.BeginDrawing();
-        rl.ClearBackground(.{
-            .r = 0x16,
-            .g = 0x16,
-            .b = 0x16,
-            .a = 0xFF,
-        });
+        rl.ClearBackground(Options.opts.extra_options.bg_color);
 
-        rl.DrawTexture(texture, 10, y, rl.WHITE);
-        self.draw_title(&y);
+        if (texture) |tex| {
+            rl.DrawTexture(tex, 10, y, rl.WHITE);
+        }
+        try self.draw_title(&y);
         y = 128 + 30;
-        rl.DrawText("Stack trace:", 10, y, 24, rl.WHITE);
+
+        // BUG: C and NUL missing
+        rl.DrawText(@ptrCast(self.msg), 10, y, 24, Options.opts.extra_options.fg_color);
+        y += 32;
+        rl.DrawText("Stack trace:", 10, y, 24, Options.opts.extra_options.fg_color);
 
         _ = rl.GuiScrollPanel(panelRec, null, panelContentRec, &panelScroll, &panelView);
 
@@ -81,13 +105,6 @@ pub fn draw(self: *Ui) !void {
         var contentHeight: u32 = @as(u32, @intFromFloat(panelView.y));
         var contentWidth: u32 = 0;
 
-        rl.DrawRectangle(0, @intCast(contentHeight), @as(c_int, @intFromFloat(panelContentRec.width)), rl.GetScreenHeight(), .{
-            .r = 0x16,
-            .g = 0x16,
-            .b = 0x16,
-            .a = 0xFF,
-        });
-
         var iter = self.trace.trace.first;
 
         while (iter) |i| : (iter = i.next) {
@@ -95,9 +112,9 @@ pub fn draw(self: *Ui) !void {
                 continue;
             }
 
-            const str = try std.fmt.allocPrint(std.heap.page_allocator, "{s} at {}:{}", .{i.data.file_name, i.data.line, i.data.column});
+            const str = try std.fmt.allocPrint(std.heap.page_allocator, "{s} at {}:{}", .{ std.fs.path.basename(i.data.file_name), i.data.line, i.data.column});
             defer std.heap.page_allocator.free(str);
-            rl.DrawText(@ptrCast(str), 10 + @as(c_int, @intFromFloat(panelScroll.x)), @intCast(contentHeight), 20, rl.WHITE);
+            rl.DrawText(@ptrCast(str), 10 + @as(c_int, @intFromFloat(panelScroll.x)), @intCast(contentHeight), 20, Options.opts.extra_options.fg_color);
             
             const w = rl.MeasureText(@ptrCast(str), 20);
 

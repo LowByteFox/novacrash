@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const root = @import("root");
 const StackTrace = @import("StackTrace.zig");
 const Ui = @import("Ui.zig");
+pub const Options = @import("Options.zig");
 
 const native_os = builtin.os.tag;
 const windows = std.os.windows;
@@ -11,35 +12,13 @@ const bad_main_ret = "expected return type of nova_main to be 'void', '!void', '
 
 var in_panic: bool = false;
 
-fn resetSegfaultHandler() void {
-    if (native_os == .windows) {
-        if (std.debug.windows_segfault_handle) |handle| {
-            std.debug.assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
-            std.debug.windows_segfault_handle = null;
-        }
-        return;
-    }
-    var act = posix.Sigaction{
-        .handler = .{ .handler = posix.SIG.DFL },
-        .mask = posix.empty_sigset,
-        .flags = 0,
-    };
-    std.debug.updateSegfaultHandler(&act);
-}
-
 pub fn panic(fmt: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) noreturn {
-    @branchHint(.cold);
-
     if (in_panic) {
-        std.debug.print("PANIC PANICKED {s}\n", .{fmt});
+        std.debug.print("DOUBLE PANICKED {s}\n", .{fmt});
         std.process.abort();
     }
 
     in_panic = true;
-
-    if (std.debug.default_enable_segfault_handler) {
-        resetSegfaultHandler();
-    }
 
     // if (builtin.single_threaded) {
     //     std.debug.print("panic: ", .{}) catch posix.abort();
@@ -57,7 +36,8 @@ pub fn panic(fmt: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) 
         std.process.abort();
     };
 
-    var ui = Ui.init(false, fmt, &tr);
+    var ui = Ui.init(fmt, &tr);
+    ui.has_panicked = true;
     defer arena.reset(.free_all);
     defer ui.deinit();
 
@@ -96,7 +76,7 @@ pub fn callMain() u8 {
                         return 1;
                     };
 
-                    var ui = Ui.init(false, @errorName(err), &tr);
+                    var ui = Ui.init(@errorName(err), &tr);
                     defer _ = arena.reset(.free_all);
                     defer ui.deinit();
 

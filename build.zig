@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("example/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -24,8 +24,6 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod,
     });
 
-    // This creates another `std.Build.Step.Compile`, but this one builds an executable
-    // rather than a static library.
     const exe = b.addExecutable(.{
         .name = "novacrash",
         .root_module = exe_mod,
@@ -33,23 +31,32 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
     lib.linkLibC();
 
-    const raylib_dep = b.dependency("raylib", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.linkLibrary(raylib_dep.artifact("raylib"));
-    lib.linkLibrary(raylib_dep.artifact("raylib"));
+    const custom_frontend = b.option(bool, "custom_frontend", "Enable custom frontend, user will have to handle hooks") orelse false;
 
-    const raylib_mod = b.createModule(.{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/raylib.zig"),
-    });
-    raylib_mod.addIncludePath(b.path("src/vendor/"));
-    raylib_mod.linkLibrary(raylib_dep.artifact("raylib"));
+    if (!custom_frontend) {
+        const raylib_dep = b.lazyDependency("raylib", .{
+            .target = target,
+            .optimize = optimize,
+        }).?;
+        exe.linkLibrary(raylib_dep.artifact("raylib"));
+        lib.linkLibrary(raylib_dep.artifact("raylib"));
 
-    exe.root_module.addImport("raylib", raylib_mod);
-    lib.root_module.addImport("raylib", raylib_mod);
+        const raylib_mod = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/raylib.zig"),
+        });
+        raylib_mod.addIncludePath(b.path("src/vendor/"));
+        raylib_mod.linkLibrary(raylib_dep.artifact("raylib"));
+
+        exe.root_module.addImport("raylib", raylib_mod);
+        lib.root_module.addImport("raylib", raylib_mod);
+    }
+
+    const options = b.addOptions();
+    options.addOption(bool, "custom_frontend", custom_frontend);
+
+    lib.root_module.addOptions("config", options);
 
     b.installArtifact(lib);
     b.installArtifact(exe);
