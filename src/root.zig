@@ -8,7 +8,7 @@ pub const Options = @import("Options.zig");
 const native_os = builtin.os.tag;
 const windows = std.os.windows;
 const posix = std.posix;
-const bad_main_ret = "expected return type of nova_main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
+const bad_main_ret = "expected return type of novaMain to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
 var in_panic: bool = false;
 
@@ -19,13 +19,6 @@ pub fn panic(fmt: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) 
     }
 
     in_panic = true;
-
-    // if (builtin.single_threaded) {
-    //     std.debug.print("panic: ", .{}) catch posix.abort();
-    // } else {
-    //     const current_thread_id = std.Thread.getCurrentId();
-    //     std.debug.print("thread {} panic: ", .{current_thread_id});
-    // }
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
@@ -47,20 +40,20 @@ pub fn panic(fmt: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) 
 }
 
 pub fn callMain() u8 {
-    const ReturnType = @typeInfo(@TypeOf(root.nova_main)).@"fn".return_type.?;
+    const ReturnType = @typeInfo(@TypeOf(root.novaMain)).@"fn".return_type.?;
 
     switch (ReturnType) {
         void => {
-            root.nova_main();
+            root.novaMain();
             return 0;
         },
         noreturn, u8 => {
-            return root.nova_main();
+            return root.novaMain();
         },
         else => {
             if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
-            const result = root.nova_main() catch |err| {
+            const result = root.novaMain() catch |err| {
                 if (builtin.zig_backend == .stage2_riscv64) {
                     std.debug.print("error: failed with error\n", .{});
                     return 1;

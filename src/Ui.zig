@@ -8,6 +8,12 @@ const Ui = @This();
 msg: []const u8,
 trace: *StackTrace,
 has_panicked: bool = false,
+phrase_index: usize,
+font: rl.Font,
+bg_color: rl.Color,
+fg_color: rl.Color,
+font_size: u32,
+spacing: f32,
 
 pub fn init(msg: []const u8, trace: *StackTrace) Ui {
     if (Options.opts.extra_options.using_raylib) {
@@ -24,7 +30,21 @@ pub fn init(msg: []const u8, trace: *StackTrace) Ui {
 
     return .{
         .msg = msg,
-        .trace = trace
+        .trace = trace,
+        .phrase_index = 0,
+        .font = brk: {
+            if (Options.opts.extra_options.font) |font| {
+                const f = rl.LoadFontFromMemory(".ttf", font.ptr, @intCast(font.len), 64, null, 0);
+                rl.SetTextureFilter(f.texture, rl.TEXTURE_FILTER_TRILINEAR);
+
+                break :brk f;
+            }
+            break :brk rl.GetFontDefault();
+        },
+        .bg_color = Options.opts.extra_options.bg_color,
+        .fg_color = Options.opts.extra_options.fg_color,
+        .font_size = Options.opts.extra_options.font_size,
+        .spacing = Options.opts.extra_options.spacing,
     };
 }
 
@@ -32,13 +52,24 @@ pub fn deinit(_: *Ui) void {
 }
 
 fn drawTitle(self: *Ui, y: *c_int) !void {
-    rl.DrawText(@ptrCast(Options.opts.catch_phrases[0]), 30 + 128, y.*, 64, Options.opts.extra_options.fg_color);
+    rl.DrawTextEx(self.font, Options.opts.catch_phrases[self.phrase_index], .{
+        .x = 30 + 128,
+        .y = @floatFromInt(y.*),
+    }, 64, self.spacing, self.fg_color);
     y.* += 64;
 
-    const str = try std.fmt.allocPrintZ(std.heap.page_allocator, "{s} {s} {s}", .{Options.opts.app_name, Options.opts.middle_message, if (self.has_panicked) "panic" else "error" });
+    const str = try std.fmt.allocPrintZ(std.heap.page_allocator, "{s} {s} {s}", .{
+        Options.opts.app_name,
+        if (self.has_panicked) Options.opts.panic_message else Options.opts.error_message,
+        if (self.has_panicked) "panic" else "error"
+    });
+
     defer std.heap.page_allocator.free(str);
 
-    rl.DrawText(@ptrCast(str), 30 + 128, y.*, 22, Options.opts.extra_options.fg_color);
+    rl.DrawTextEx(self.font, @ptrCast(str), .{
+        .x = 30 + 128,
+        .y = @floatFromInt(y.*),
+    }, @floatFromInt(self.font_size), self.spacing, self.fg_color);
 }
 
 pub fn draw(self: *Ui) !void {
@@ -68,7 +99,12 @@ pub fn draw(self: *Ui) !void {
         }
     };
 
-    var panelRec: rl.Rectangle = .{ .x = 10, .y = 128 + 50 + 10 + 32, .width = @as(f32, @floatFromInt(rl.GetScreenWidth())) - 20, .height = 0 };
+    var rng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));
+    const rn = rng.random();
+    const index: usize = rn.intRangeAtMost(usize, 0, Options.opts.catch_phrases.len - 1);
+    self.phrase_index = index;
+
+    var panelRec: rl.Rectangle = .{ .x = 10, .y = 0, .width = @as(f32, @floatFromInt(rl.GetScreenWidth())) - 20, .height = 0 };
     panelRec.height = @as(f32, @floatFromInt(rl.GetScreenHeight())) - panelRec.y - 10;
 
     var panelContentRec: rl.Rectangle = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
@@ -76,10 +112,10 @@ pub fn draw(self: *Ui) !void {
     var panelScroll: rl.Vector2 = .{ .x = 0, .y = 0, };
 
     var bg_color: u32 = 0;
-    bg_color += @as(u32, @intCast(Options.opts.extra_options.bg_color.r)) << 24;
-    bg_color += @as(u32, @intCast(Options.opts.extra_options.bg_color.g)) << 16;
-    bg_color += @as(u32, @intCast(Options.opts.extra_options.bg_color.b)) << 8;
-    bg_color += Options.opts.extra_options.bg_color.a;
+    bg_color += @as(u32, @intCast(self.bg_color.r)) << 24;
+    bg_color += @as(u32, @intCast(self.bg_color.g)) << 16;
+    bg_color += @as(u32, @intCast(self.bg_color.b)) << 8;
+    bg_color += self.bg_color.a;
 
     rl.GuiSetStyle(rl.DEFAULT, rl.BACKGROUND_COLOR, @bitCast(bg_color));
     rl.GuiSetStyle(rl.DEFAULT, rl.BORDER_WIDTH, 0);
@@ -88,18 +124,27 @@ pub fn draw(self: *Ui) !void {
         var y: c_int = 20;
 
         rl.BeginDrawing();
-        rl.ClearBackground(Options.opts.extra_options.bg_color);
+        rl.ClearBackground(self.bg_color);
 
         if (texture) |tex| {
             rl.DrawTexture(tex, 10, y, rl.WHITE);
         }
         try self.drawTitle(&y);
-        y = 128 + 30;
+        y = 128 + 32;
 
         // BUG: C and NUL missing
-        rl.DrawText(@ptrCast(self.msg), 10, y, 24, Options.opts.extra_options.fg_color);
+        rl.DrawTextEx(self.font, @ptrCast(self.msg), .{
+            .x = 10,
+            .y = @floatFromInt(y),
+        }, @as(f32, @floatFromInt(self.font_size)) + 2, self.spacing, rl.RED);
         y += 32;
-        rl.DrawText("Stack trace:", 10, y, 24, Options.opts.extra_options.fg_color);
+        rl.DrawTextEx(self.font, "Stack trace:", .{
+            .x = 10,
+            .y = @floatFromInt(y),
+        }, @as(f32, @floatFromInt(self.font_size)) + 2, self.spacing, self.fg_color);
+
+        y += 30;
+        panelRec.y = @floatFromInt(y);
 
         _ = rl.GuiScrollPanel(panelRec, null, panelContentRec, &panelScroll, &panelView);
 
@@ -120,15 +165,18 @@ pub fn draw(self: *Ui) !void {
 
             const str = try std.fmt.allocPrint(std.heap.page_allocator, "{s} at {}:{}", .{ std.fs.path.basename(i.data.file_name), i.data.line, i.data.column});
             defer std.heap.page_allocator.free(str);
-            rl.DrawText(@ptrCast(str), 10 + @as(c_int, @intFromFloat(panelScroll.x)), @intCast(contentHeight), 20, Options.opts.extra_options.fg_color);
+            rl.DrawTextEx(self.font, @ptrCast(str), .{
+                .x = 10 + panelScroll.x,
+                .y = @floatFromInt(contentHeight)
+            }, @as(f32, @floatFromInt(self.font_size)) - 2, self.spacing, self.fg_color);
             
-            const w = rl.MeasureText(@ptrCast(str), 20);
+            const w = rl.MeasureTextEx(self.font, @ptrCast(str), @as(f32, @floatFromInt(self.font_size)) - 2, self.spacing);
 
-            if (w > contentWidth) {
-                contentWidth = @intCast(w);
+            if (w.x > @as(f32, @floatFromInt(contentWidth))) {
+                contentWidth = @intFromFloat(w.x);
             }
 
-            contentHeight += 30;
+            contentHeight += @intFromFloat(w.y);
         }
         contentHeight -= 30;
 

@@ -10,8 +10,9 @@ fn ExtraOptions() type {
         // TODO: possibly add extra fields
     } else struct {
         const rl = @import("raylib");
-        font: ?rl.Font = null,
-        spacing: f32 = @as(f32, @floatFromInt(rl.TEXT_SPACING)),
+        font: ?[]const u8 = null,
+        spacing: f32 = @as(f32, @floatFromInt(2)),
+        font_size: u32 = 22,
         bg_color: rl.Color = .{ .r = 0x16, .g = 0x16, .b = 0x16, .a = 0xFF },
         fg_color: rl.Color = rl.RAYWHITE,
         height: usize = 750,
@@ -20,9 +21,10 @@ fn ExtraOptions() type {
     };
 }
 
-catch_phrases: []const [:0]const u8 = &[_][:0]const u8{"Agh", "X_X", "Weh", "Guh"},
+catch_phrases: []const [:0]const u8 = &[_][:0]const u8{"Bleh", "X_X", "Weh", "Guh"},
 app_name: []const u8 = "App",
-middle_message: []const u8 = "has encountered an",
+error_message: []const u8 = "has encountered an",
+panic_message: []const u8 = "has encountered a",
 crash_img: ?[]const u8 = null,
 error_img: ?[]const u8 = null,
 extra_options: ExtraOptions() = .{},
