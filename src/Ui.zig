@@ -10,10 +10,12 @@ trace: *StackTrace,
 has_panicked: bool = false,
 phrase_index: usize,
 font: rl.Font,
+active_color: rl.Color,
 bg_color: rl.Color,
 fg_color: rl.Color,
 font_size: u32,
 spacing: f32,
+toggle_full_path: bool,
 
 pub fn init(msg: []const u8, trace: *StackTrace) Ui {
     if (Options.opts.extra_options.using_raylib) {
@@ -41,10 +43,12 @@ pub fn init(msg: []const u8, trace: *StackTrace) Ui {
             }
             break :brk rl.GetFontDefault();
         },
+        .active_color = Options.opts.extra_options.active_color,
         .bg_color = Options.opts.extra_options.bg_color,
         .fg_color = Options.opts.extra_options.fg_color,
         .font_size = Options.opts.extra_options.font_size,
         .spacing = Options.opts.extra_options.spacing,
+        .toggle_full_path = false,
     };
 }
 
@@ -105,7 +109,6 @@ pub fn draw(self: *Ui) !void {
     self.phrase_index = index;
 
     var panelRec: rl.Rectangle = .{ .x = 10, .y = 0, .width = @as(f32, @floatFromInt(rl.GetScreenWidth())) - 20, .height = 0 };
-    panelRec.height = @as(f32, @floatFromInt(rl.GetScreenHeight())) - panelRec.y - 10;
 
     var panelContentRec: rl.Rectangle = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     var panelView: rl.Rectangle  = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
@@ -117,8 +120,29 @@ pub fn draw(self: *Ui) !void {
     bg_color += @as(u32, @intCast(self.bg_color.b)) << 8;
     bg_color += self.bg_color.a;
 
+    var fg_color: u32 = 0;
+    fg_color += @as(u32, @intCast(self.fg_color.r)) << 24;
+    fg_color += @as(u32, @intCast(self.fg_color.g)) << 16;
+    fg_color += @as(u32, @intCast(self.fg_color.b)) << 8;
+    fg_color += self.fg_color.a;
+
+    var active_color: u32 = 0;
+    active_color += @as(u32, @intCast(self.active_color.r)) << 24;
+    active_color += @as(u32, @intCast(self.active_color.g)) << 16;
+    active_color += @as(u32, @intCast(self.active_color.b)) << 8;
+    active_color += self.active_color.a;
+
     rl.GuiSetStyle(rl.DEFAULT, rl.BACKGROUND_COLOR, @bitCast(bg_color));
+    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_COLOR_NORMAL, @bitCast(fg_color));
+    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_COLOR_FOCUSED, @bitCast(active_color));
+    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_COLOR_PRESSED, @bitCast(active_color));
+
+    rl.GuiSetStyle(rl.SLIDER, rl.BORDER + rl.STATE_FOCUSED * 3, @bitCast(active_color));
+    rl.GuiSetStyle(rl.SLIDER, rl.BORDER + rl.STATE_PRESSED * 3, @bitCast(active_color));
+
     rl.GuiSetStyle(rl.DEFAULT, rl.BORDER_WIDTH, 0);
+    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_SIZE, @intCast(self.font_size));
+    rl.GuiSetFont(self.font);
 
     while (!rl.WindowShouldClose()) {
         var y: c_int = 20;
@@ -142,9 +166,18 @@ pub fn draw(self: *Ui) !void {
             .x = 10,
             .y = @floatFromInt(y),
         }, @as(f32, @floatFromInt(self.font_size)) + 2, self.spacing, self.fg_color);
+        y += 32;
 
-        y += 30;
+        _ = rl.GuiCheckBox(.{
+            .x = 10,
+            .y = @floatFromInt(y),
+            .width = 32,
+            .height = 32,
+        }, "Toggle Full Paths", &self.toggle_full_path);
+
+        y += 36;
         panelRec.y = @floatFromInt(y);
+        panelRec.height = @as(f32, @floatFromInt(rl.GetScreenHeight())) - panelRec.y - 10;
 
         _ = rl.GuiScrollPanel(panelRec, null, panelContentRec, &panelScroll, &panelView);
 
@@ -163,7 +196,9 @@ pub fn draw(self: *Ui) !void {
                 continue;
             }
 
-            const str = try std.fmt.allocPrint(std.heap.page_allocator, "{s} at {}:{}", .{ std.fs.path.basename(i.data.file_name), i.data.line, i.data.column});
+            const path_res = if (self.toggle_full_path) i.data.file_name else std.fs.path.basename(i.data.file_name);
+
+            const str = try std.fmt.allocPrintZ(std.heap.page_allocator, "{s} at {}:{}", .{ path_res, i.data.line, i.data.column});
             defer std.heap.page_allocator.free(str);
             rl.DrawTextEx(self.font, @ptrCast(str), .{
                 .x = 10 + panelScroll.x,

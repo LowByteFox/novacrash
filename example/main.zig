@@ -13,7 +13,7 @@ pub fn novaMain() !void {
     novacrash_options.extra_options.font = @embedFile("./assets/Ubuntu-R.ttf");
     novacrash_options.extra_options.font_size = 24;
 
-    return error.TheyLetMetError;
+    @panic("I panic here!");
 }
 
 pub const main = novacrash.callMain;
