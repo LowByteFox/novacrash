@@ -31,7 +31,7 @@ pub fn panic(fmt: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) 
     const allocator = arena.allocator();
 
     var tr = StackTrace.init(allocator);
-    tr.populate_current(return_addr orelse @returnAddress()) catch |err| {
+    tr.populateCurrent(return_addr orelse @returnAddress()) catch |err| {
         std.log.err("{s}", .{@errorName(err)});
         std.process.abort();
     };

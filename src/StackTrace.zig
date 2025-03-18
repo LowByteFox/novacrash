@@ -22,7 +22,7 @@ pub fn init(allocator: std.mem.Allocator) StackTrace {
     };
 }
 
-fn add_trace(self: *StackTrace, line: u64, col: u64, filename: []const u8) !void {
+fn addTrace(self: *StackTrace, line: u64, col: u64, filename: []const u8) !void {
     var node = try self.allocator.create(Node);
     node.data.column = col;
     node.data.line = line;
@@ -31,7 +31,7 @@ fn add_trace(self: *StackTrace, line: u64, col: u64, filename: []const u8) !void
     self.trace.append(node);
 }
 
-pub fn populate_current(self: *StackTrace, start_addr: usize) !void {
+pub fn populateCurrent(self: *StackTrace, start_addr: usize) !void {
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
 
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
@@ -54,7 +54,7 @@ pub fn populate_current(self: *StackTrace, start_addr: usize) !void {
         };
 
         for (addrs[start_i..]) |addr| {
-            try self.populate_address(debug_info, addr - 1);
+            try self.populateAddress(debug_info, addr - 1);
         }
 
         return;
@@ -70,14 +70,14 @@ pub fn populate_current(self: *StackTrace, start_addr: usize) !void {
 
     while (it.next()) |return_address| {
         const address = return_address -| 1;
-        try self.populate_address(debug_info, address);
+        try self.populateAddress(debug_info, address);
     }
 }
 
-fn populate_address(self: *StackTrace, debug_info: *std.debug.SelfInfo, address: usize) !void {
+fn populateAddress(self: *StackTrace, debug_info: *std.debug.SelfInfo, address: usize) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
-            try self.add_trace(0, 0, "???");
+            try self.addTrace(0, 0, "???");
             return;
         },
         else => return err,
@@ -85,16 +85,16 @@ fn populate_address(self: *StackTrace, debug_info: *std.debug.SelfInfo, address:
 
     const symbol_info = module.getSymbolAtAddress(debug_info.allocator, address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
-            try self.add_trace(0, 0, "???");
+            try self.addTrace(0, 0, "???");
             return;
         },
         else => return err,
     };
 
     if (symbol_info.source_location) |loc| {
-        try self.add_trace(loc.line, loc.column, loc.file_name);
+        try self.addTrace(loc.line, loc.column, loc.file_name);
     } else {
-        try self.add_trace(0, 0, "???");
+        try self.addTrace(0, 0, "???");
     }
 }
 
@@ -114,7 +114,7 @@ pub fn populate(self: *StackTrace, trace: *std.builtin.StackTrace) !void {
         frame_index = (frame_index + 1) % trace.instruction_addresses.len;
     }) {
         const return_address = trace.instruction_addresses[frame_index];
-        try self.populate_address(debug_info, return_address - 1);
+        try self.populateAddress(debug_info, return_address - 1);
     }
 
     if (trace.index > trace.instruction_addresses.len) {

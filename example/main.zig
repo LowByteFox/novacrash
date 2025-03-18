@@ -11,10 +11,10 @@ pub var novacrash_options: novacrash.Options = .{
 };
 
 pub fn nova_main() !void {
-    novacrash_options.extra_options.bg_color = rl.RAYWHITE;
-    novacrash_options.extra_options.fg_color = rl.BLACK;
+    novacrash_options.extra_options.bg_color = rl.DARKGRAY;
+    novacrash_options.extra_options.fg_color = rl.LIGHTGRAY;
 
-    return error.JustBecause;
+    @panic("AAAAA");
 }
 
 pub const main = novacrash.callMain;

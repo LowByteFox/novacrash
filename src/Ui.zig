@@ -31,7 +31,7 @@ pub fn init(msg: []const u8, trace: *StackTrace) Ui {
 pub fn deinit(_: *Ui) void {
 }
 
-fn draw_title(self: *Ui, y: *c_int) !void {
+fn drawTitle(self: *Ui, y: *c_int) !void {
     rl.DrawText(@ptrCast(Options.opts.catch_phrases[0]), 30 + 128, y.*, 64, Options.opts.extra_options.fg_color);
     y.* += 64;
 
@@ -75,7 +75,13 @@ pub fn draw(self: *Ui) !void {
     var panelView: rl.Rectangle  = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     var panelScroll: rl.Vector2 = .{ .x = 0, .y = 0, };
 
-    rl.GuiSetStyle(rl.DEFAULT, rl.BACKGROUND_COLOR, @bitCast(Options.opts.extra_options.bg_color));
+    var bg_color: u32 = 0;
+    bg_color += @as(u32, @intCast(Options.opts.extra_options.bg_color.r)) << 24;
+    bg_color += @as(u32, @intCast(Options.opts.extra_options.bg_color.g)) << 16;
+    bg_color += @as(u32, @intCast(Options.opts.extra_options.bg_color.b)) << 8;
+    bg_color += Options.opts.extra_options.bg_color.a;
+
+    rl.GuiSetStyle(rl.DEFAULT, rl.BACKGROUND_COLOR, @bitCast(bg_color));
     rl.GuiSetStyle(rl.DEFAULT, rl.BORDER_WIDTH, 0);
 
     while (!rl.WindowShouldClose()) {
@@ -87,7 +93,7 @@ pub fn draw(self: *Ui) !void {
         if (texture) |tex| {
             rl.DrawTexture(tex, 10, y, rl.WHITE);
         }
-        try self.draw_title(&y);
+        try self.drawTitle(&y);
         y = 128 + 30;
 
         // BUG: C and NUL missing
