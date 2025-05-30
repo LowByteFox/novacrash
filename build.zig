@@ -42,6 +42,7 @@ pub fn build(b: *std.Build) void {
         const raylib = raylib_dep.module("raylib");
         const raygui = raylib_dep.module("raygui");
         const raylib_artifact = raylib_dep.artifact("raylib");
+        raylib_artifact.root_module.addCMacro("RAYGUI_PANEL_BORDER_WIDTH", "2");
 
         exe.linkLibrary(raylib_artifact);
         exe.root_module.addImport("raylib", raylib);

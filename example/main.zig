@@ -14,7 +14,8 @@ pub var novacrash_options: novacrash.Options = .{
         .theme = .{
             .font = @embedFile("./assets/Ubuntu-R.ttf"),
             .font_size = 22,
-        }
+        },
+        // .webhook_url = "..."
     }
 };
 

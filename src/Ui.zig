@@ -18,6 +18,10 @@ window: struct {
     heitht: i32 = 600,
 } = .{},
 
+const WebhookPayload = struct {
+    content: []const u8,
+};
+
 pub fn init(msg: [:0]const u8, trace: *StackTrace) !Ui {
     const opts = Options.opts;
 
@@ -104,13 +108,20 @@ pub fn draw(self: *Ui) !void {
     rgui.setStyle(.default, .{ .control = .border_color_normal }, fg_color);
     rgui.setStyle(.default, .{ .control = .border_color_pressed }, fg_color);
     rgui.setStyle(.default, .{ .control = .border_color_focused }, fg_color);
+    rgui.setStyle(.default, .{ .default = .line_color}, fg_color);
 
+    rgui.setStyle(.button, .{ .control = .text_color_focused }, bg_color);
     rgui.setStyle(.button, .{ .control = .base_color_normal }, bg_color);
+    rgui.setStyle(.button, .{ .control = .base_color_focused }, fg_color);
+    rgui.setStyle(.button, .{ .control = .base_color_pressed }, fg_color);
+
     rgui.setStyle(.slider, .{ .control = .border_color_normal }, ambient_color);
     rgui.setStyle(.slider, .{ .control = .border_color_focused }, ambient_color);
     rgui.setStyle(.slider, .{ .control = .border_color_pressed }, ambient_color);
 
     rgui.setStyle(.scrollbar, .{ .default = .background_color }, ambient_color);
+
+    rgui.setStyle(.statusbar, .{ .control = .base_color_normal }, bg_color);
 
     rgui.setStyle(.checkbox, .{ .control = .border_color_normal }, fg_color);
     rgui.setStyle(.checkbox, .{ .control = .border_color_focused }, ambient_color);
@@ -125,7 +136,10 @@ pub fn draw(self: *Ui) !void {
 
     const allocator = std.heap.page_allocator;
 
-    while (!rl.windowShouldClose()) {
+    var show_msg_box: bool = false;
+    var end: bool = false;
+
+    while (!rl.windowShouldClose() and !end) {
         rl.beginDrawing();
         rl.clearBackground(self.opts.extra.theme.background);
         self.window.width = rl.getScreenWidth();
@@ -214,6 +228,9 @@ pub fn draw(self: *Ui) !void {
 
         panel_rec.y = y;
         panel_rec.height = @as(f32, @floatFromInt(self.window.heitht)) - panel_rec.y - self.opts.extra.theme.padding;
+        if (self.opts.extra.webhook_url != null)
+            panel_rec.height -= self.opts.extra.theme.font_size * 2 + self.opts.extra.theme.padding;
+
         panel_rec.width = @as(f32, @floatFromInt(self.window.width)) - self.opts.extra.theme.padding * 2;
 
         rgui.setStyle(.default, .{ .control = .border_width }, 2);
@@ -275,6 +292,66 @@ pub fn draw(self: *Ui) !void {
         content_rec.width = content_width;
 
         rl.endScissorMode();
+
+        rgui.setStyle(.default, .{ .control = .border_width }, 2);
+        if (self.opts.extra.webhook_url) |url| {
+            if (rgui.button(.{
+                .x = self.opts.extra.theme.padding,
+                .y = @as(f32, @floatFromInt(self.window.heitht)) - 
+                    self.opts.extra.theme.font_size * 2 - self.opts.extra.theme.padding,
+                .height = self.opts.extra.theme.font_size * 2,
+                .width = width,
+            }, "Send crash report") and !show_msg_box) {
+
+                show_msg_box = true;
+
+                var hook_client = std.http.Client {
+                    .allocator = allocator,
+                };
+
+                var buffer = try std.fmt.allocPrint(std.heap.page_allocator, "{s} {s} {s}\n\n", .{
+                    self.opts.app_name,
+                    if (self.has_panicked) self.opts.panic_message else self.opts.error_message,
+                    if (self.has_panicked) "panic" else "error"
+                });
+
+                iter = self.trace.trace.first;
+
+                while (iter) |i| : (iter = i.next) {
+                    buffer = try std.fmt.allocPrint(allocator, "{s}{}:{} at {s}\n",
+                        .{buffer, i.data.line, i.data.column, i.data.file_name});
+                }
+
+                _ = try hook_client.fetch(.{
+                    .method = .POST,
+                    .location = .{
+                        .url = url,
+                    },
+                    .payload = try std.json.stringifyAlloc(allocator, WebhookPayload{
+                            .content = buffer,
+                        }, .{}),
+                    .headers = .{
+                        .content_type = .{ .override = "application/json" }
+                    }
+                });
+            }
+        }
+
+        if (show_msg_box) {
+            const msg_box_width = width / 1.5;
+            const msg_box_height: f32 = 250;
+            if (rgui.messageBox(.{
+                .x = width / 2 - msg_box_width / 2,
+                .y = @as(f32, @floatFromInt(self.window.heitht)) / 2 - msg_box_height / 2,
+                .height = msg_box_height,
+                .width = msg_box_width,
+            }, "#191#Send crash", "Crash report sent successfully!", "Ok;Cancel") >= 0) {
+                show_msg_box = false;
+                end = true;
+            }
+        }
+        rgui.setStyle(.default, .{ .control = .border_width }, 0);
+
         rl.endDrawing();
     }
 

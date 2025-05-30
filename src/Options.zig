@@ -35,6 +35,8 @@ fn ExtraOptions() type {
             icon_size: rl.Vector2 = .{ .x = 128, .y = 128 },
             title_size: f32 = 48,
         } = .{},
+
+        webhook_url: ?[]const u8 = null,
     };
 }
 
