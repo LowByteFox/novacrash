@@ -1,193 +1,229 @@
 const std = @import("std");
 const rl = @import("raylib");
+const rgui = @import("raygui");
 const Options = @import("Options.zig");
 const StackTrace = @import("StackTrace.zig");
 
 const Ui = @This();
 
-msg: []const u8,
-trace: *StackTrace,
-has_panicked: bool = false,
-phrase_index: usize,
+msg: [:0]const u8,
+opts: *const Options,
 font: rl.Font,
-active_color: rl.Color,
-bg_color: rl.Color,
-fg_color: rl.Color,
-font_size: u32,
-spacing: f32,
-toggle_full_path: bool,
+phrase_index: usize = 0,
+trace: *StackTrace,
+toggle_full_path: bool = false,
+has_panicked: bool = false,
+window: struct {
+    width: i32 = 850,
+    heitht: i32 = 600,
+} = .{},
 
-pub fn init(msg: []const u8, trace: *StackTrace) Ui {
-    if (Options.opts.extra_options.using_raylib) {
-        rl.CloseWindow();
+pub fn init(msg: [:0]const u8, trace: *StackTrace) !Ui {
+    const opts = Options.opts;
+
+    if (opts.extra.using_raylib) {
+        rl.closeWindow();
     }
 
-    rl.SetTraceLogLevel(rl.LOG_ERROR);
+    rl.setTraceLogLevel(rl.TraceLogLevel.err);
 
-    const w_height = Options.opts.extra_options.height;
-    const w_width = Options.opts.extra_options.width;
+    const w_height = opts.extra.window.height;
+    const w_width = opts.extra.window.width;
 
-    rl.InitWindow(@intCast(w_width), @intCast(w_height), "Novacrash report!");
-    rl.SetTargetFPS(60);
+    rl.setConfigFlags(.{ .window_resizable = true });
+    rl.initWindow(w_width, w_height, opts.extra.window.title);
+    if (!rl.isWindowReady())
+        return error.RaylibNotReady;
+
+    rl.setTargetFPS(60);
 
     return .{
         .msg = msg,
         .trace = trace,
-        .phrase_index = 0,
         .font = brk: {
-            if (Options.opts.extra_options.font) |font| {
-                const f = rl.LoadFontFromMemory(".ttf", font.ptr, @intCast(font.len), 64, null, 0);
-                rl.SetTextureFilter(f.texture, rl.TEXTURE_FILTER_TRILINEAR);
+            if (opts.extra.theme.font) |font| {
+                const f = try rl.loadFontFromMemory(".ttf", font,
+                    @as(i32, @intFromFloat(opts.extra.header.title_size)),
+                    null);
 
+                rl.setTextureFilter(f.texture, rl.TextureFilter.trilinear);
                 break :brk f;
             }
-            break :brk rl.GetFontDefault();
+            break :brk try rl.getFontDefault();
         },
-        .active_color = Options.opts.extra_options.active_color,
-        .bg_color = Options.opts.extra_options.bg_color,
-        .fg_color = Options.opts.extra_options.fg_color,
-        .font_size = Options.opts.extra_options.font_size,
-        .spacing = Options.opts.extra_options.spacing,
-        .toggle_full_path = false,
+        .opts = opts,
     };
-}
-
-pub fn deinit(_: *Ui) void {
-}
-
-fn drawTitle(self: *Ui, y: *c_int) !void {
-    rl.DrawTextEx(self.font, Options.opts.catch_phrases[self.phrase_index], .{
-        .x = 30 + 128,
-        .y = @floatFromInt(y.*),
-    }, 64, self.spacing, self.fg_color);
-    y.* += 64;
-
-    const str = try std.fmt.allocPrintZ(std.heap.page_allocator, "{s} {s} {s}", .{
-        Options.opts.app_name,
-        if (self.has_panicked) Options.opts.panic_message else Options.opts.error_message,
-        if (self.has_panicked) "panic" else "error"
-    });
-
-    defer std.heap.page_allocator.free(str);
-
-    rl.DrawTextEx(self.font, @ptrCast(str), .{
-        .x = 30 + 128,
-        .y = @floatFromInt(y.*),
-    }, @floatFromInt(self.font_size), self.spacing, self.fg_color);
 }
 
 pub fn draw(self: *Ui) !void {
     const texture: ?rl.Texture = brk: {
-        if (self.has_panicked) {
-            if (Options.opts.crash_img) |img| {
-                var image = rl.LoadImageFromMemory(".png", @ptrCast(img), @intCast(img.len));
-                rl.ImageResize(&image, 128, 128);
-
-                const texture = rl.LoadTextureFromImage(image);
-                rl.UnloadImage(image);
-                break :brk texture;
+        const img_buf: ?[]const u8 = img_brk: {
+            if (self.has_panicked) {
+                if (self.opts.extra.header.crash_icon) |img| {
+                    break :img_brk img;
+                }
             } else {
-                break :brk null;
+                if (self.opts.extra.header.error_icon) |img| {
+                    break :img_brk img;
+                }
             }
-        } else {
-            if (Options.opts.error_img) |img| {
-                var image = rl.LoadImageFromMemory(".png", @ptrCast(img), @intCast(img.len));
-                rl.ImageResize(&image, 128, 128);
+            break :img_brk null;
+        };
 
-                const texture = rl.LoadTextureFromImage(image);
-                rl.UnloadImage(image);
-                break :brk texture;
-            } else {
-                break :brk null;
-            }
+        if (img_buf) |img| {
+            var image = try rl.loadImageFromMemory(".png", img);
+            defer rl.unloadImage(image);
+            rl.imageResize(&image,
+                @as(i32, @intFromFloat(self.opts.extra.header.icon_size.x)),
+                @as(i32, @intFromFloat(self.opts.extra.header.icon_size.y)));
+
+            break :brk try image.toTexture();
         }
+        break :brk null;
     };
 
     var rng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));
     const rn = rng.random();
-    const index: usize = rn.intRangeAtMost(usize, 0, Options.opts.catch_phrases.len - 1);
-    self.phrase_index = index;
+    self.phrase_index = rn.intRangeAtMost(usize, 0,
+        self.opts.extra.header.catch_phrases.len - 1);
 
-    var panelRec: rl.Rectangle = .{ .x = 10, .y = 0, .width = @as(f32, @floatFromInt(rl.GetScreenWidth())) - 20, .height = 0 };
+    var panel_rec: rl.Rectangle = .{ .x = 10, .y = 0, .width = @as(f32, @floatFromInt(rl.getScreenWidth())) - 20, .height = 0 };
 
-    var panelContentRec: rl.Rectangle = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    var panelView: rl.Rectangle  = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    var panelScroll: rl.Vector2 = .{ .x = 0, .y = 0, };
+    var content_rec: rl.Rectangle = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    var panel_scroll: rl.Vector2 = .{ .x = 0, .y = 0, };
+    var panel_view: rl.Rectangle  = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
 
-    var bg_color: u32 = 0;
-    bg_color += @as(u32, @intCast(self.bg_color.r)) << 24;
-    bg_color += @as(u32, @intCast(self.bg_color.g)) << 16;
-    bg_color += @as(u32, @intCast(self.bg_color.b)) << 8;
-    bg_color += self.bg_color.a;
+    const bg_color = rl.colorToInt(self.opts.extra.theme.background);
+    const fg_color = rl.colorToInt(self.opts.extra.theme.foreground);
+    const ambient_color = rl.colorToInt(self.opts.extra.theme.ambient);
 
-    var fg_color: u32 = 0;
-    fg_color += @as(u32, @intCast(self.fg_color.r)) << 24;
-    fg_color += @as(u32, @intCast(self.fg_color.g)) << 16;
-    fg_color += @as(u32, @intCast(self.fg_color.b)) << 8;
-    fg_color += self.fg_color.a;
+    rgui.setStyle(.default, .{ .default = .background_color }, bg_color);
+    rgui.setStyle(.default, .{ .control = .text_color_normal }, fg_color);
+    rgui.setStyle(.default, .{ .control = .text_color_focused }, ambient_color);
+    rgui.setStyle(.default, .{ .control = .text_color_pressed }, ambient_color);
+    rgui.setStyle(.default, .{ .control = .border_color_normal }, fg_color);
+    rgui.setStyle(.default, .{ .control = .border_color_pressed }, fg_color);
+    rgui.setStyle(.default, .{ .control = .border_color_focused }, fg_color);
 
-    var active_color: u32 = 0;
-    active_color += @as(u32, @intCast(self.active_color.r)) << 24;
-    active_color += @as(u32, @intCast(self.active_color.g)) << 16;
-    active_color += @as(u32, @intCast(self.active_color.b)) << 8;
-    active_color += self.active_color.a;
+    rgui.setStyle(.button, .{ .control = .base_color_normal }, bg_color);
+    rgui.setStyle(.slider, .{ .control = .border_color_normal }, ambient_color);
+    rgui.setStyle(.slider, .{ .control = .border_color_focused }, ambient_color);
+    rgui.setStyle(.slider, .{ .control = .border_color_pressed }, ambient_color);
 
-    rl.GuiSetStyle(rl.DEFAULT, rl.BACKGROUND_COLOR, @bitCast(bg_color));
-    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_COLOR_NORMAL, @bitCast(fg_color));
-    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_COLOR_FOCUSED, @bitCast(active_color));
-    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_COLOR_PRESSED, @bitCast(active_color));
+    rgui.setStyle(.scrollbar, .{ .default = .background_color }, ambient_color);
 
-    rl.GuiSetStyle(rl.SLIDER, rl.BORDER + rl.STATE_FOCUSED * 3, @bitCast(active_color));
-    rl.GuiSetStyle(rl.SLIDER, rl.BORDER + rl.STATE_PRESSED * 3, @bitCast(active_color));
+    rgui.setStyle(.checkbox, .{ .control = .border_color_normal }, fg_color);
+    rgui.setStyle(.checkbox, .{ .control = .border_color_focused }, ambient_color);
+    rgui.setStyle(.checkbox, .{ .control = .border_color_pressed }, ambient_color);
+    rgui.setStyle(.checkbox, .{ .control = .text_alignment }, @intFromEnum(rgui.TextAlignment.center));
 
-    rl.GuiSetStyle(rl.DEFAULT, rl.BORDER_WIDTH, 0);
-    rl.GuiSetStyle(rl.DEFAULT, rl.TEXT_SIZE, @intCast(self.font_size));
-    rl.GuiSetFont(self.font);
+    rgui.setStyle(.default, .{ .control = .border_width }, 0);
+    rgui.setStyle(.default, .{ .default = .text_size},
+        @as(i32, @intFromFloat(self.opts.extra.theme.font_size)));
 
-    while (!rl.WindowShouldClose()) {
-        var y: c_int = 20;
+    rgui.setFont(self.font);
 
-        rl.BeginDrawing();
-        rl.ClearBackground(self.bg_color);
+    const allocator = std.heap.page_allocator;
 
-        if (texture) |tex| {
-            rl.DrawTexture(tex, 10, y, rl.WHITE);
-        }
-        try self.drawTitle(&y);
-        y = 128 + 32;
+    while (!rl.windowShouldClose()) {
+        rl.beginDrawing();
+        rl.clearBackground(self.opts.extra.theme.background);
+        self.window.width = rl.getScreenWidth();
+        self.window.heitht = rl.getScreenHeight();
 
-        // BUG: C and NUL missing
-        rl.DrawTextEx(self.font, @ptrCast(self.msg), .{
-            .x = 10,
-            .y = @floatFromInt(y),
-        }, @as(f32, @floatFromInt(self.font_size)) + 2, self.spacing, rl.RED);
-        y += 32;
-        rl.DrawTextEx(self.font, "Stack trace:", .{
-            .x = 10,
-            .y = @floatFromInt(y),
-        }, @as(f32, @floatFromInt(self.font_size)) + 2, self.spacing, self.fg_color);
-        y += 32;
+        var y: f32 = try self.drawTitle(texture);
+        rl.drawLineEx(.{
+            .x = self.opts.extra.theme.padding,
+            .y = y,
+        }, .{
+            .x = @as(f32, @floatFromInt(self.window.width)) - self.opts.extra.theme.padding,
+            .y = y,
+        }, 2, self.opts.extra.theme.foreground);
+        y += self.opts.extra.theme.padding;
 
-        _ = rl.GuiCheckBox(.{
-            .x = 10,
-            .y = @floatFromInt(y),
-            .width = 32,
-            .height = 32,
-        }, "Toggle Full Paths", &self.toggle_full_path);
+        const width: f32 = @as(f32, @floatFromInt(self.window.width)) - self.opts.extra.theme.padding * 2;
 
-        y += 36;
-        panelRec.y = @floatFromInt(y);
-        panelRec.height = @as(f32, @floatFromInt(rl.GetScreenHeight())) - panelRec.y - 10;
+        rgui.setStyle(.default, .{ .control = .text_color_normal }, ambient_color);
+        _ = rgui.label(.{
+            .x = self.opts.extra.theme.padding,
+            .y = y,
+            .height = self.opts.extra.theme.font_size,
+            .width = width,
+        }, self.msg);
+        rgui.setStyle(.default, .{ .control = .text_color_normal }, fg_color);
 
-        _ = rl.GuiScrollPanel(panelRec, null, panelContentRec, &panelScroll, &panelView);
+        y += self.opts.extra.theme.font_size + self.opts.extra.theme.padding;
+        _ = rgui.label(.{
+            .x = self.opts.extra.theme.padding,
+            .y = y,
+            .height = self.opts.extra.theme.font_size,
+            .width = width,
+        }, "Options:");
+        y += self.opts.extra.theme.font_size + self.opts.extra.theme.padding;
 
-        rl.BeginScissorMode(@as(c_int, @intFromFloat(panelView.x)),
-            @as(c_int, @intFromFloat(panelView.y)),
-            @as(c_int, @intFromFloat(panelView.width)),
-            @as(c_int, @intFromFloat(panelView.height)));
+        rgui.setStyle(.default, .{ .control = .border_width }, 2);
+        _ = rgui.checkBox(.{
+            .x = self.opts.extra.theme.padding,
+            .y = y,
+            .height = self.opts.extra.theme.font_size,
+            .width = self.opts.extra.theme.font_size,
+        }, "Enable full trace paths", &self.toggle_full_path);
+        rgui.setStyle(.default, .{ .control = .border_width }, 0);
+        y += self.opts.extra.theme.font_size + self.opts.extra.theme.padding;
 
-        var contentHeight: u32 = @as(u32, @intFromFloat(panelView.y));
-        var contentWidth: u32 = 0;
+        _ = rgui.label(.{
+            .x = self.opts.extra.theme.padding,
+            .y = y,
+            .height = self.opts.extra.theme.font_size,
+            .width = width,
+        }, "Stack Trace:");
+        y += self.opts.extra.theme.font_size + self.opts.extra.theme.padding / 2;
+
+        rl.drawRectangleLinesEx(.{
+            .x = self.opts.extra.theme.padding,
+            .y = y,
+            .width = width,
+            .height = self.opts.extra.theme.font_size + 4,
+        }, 2, self.opts.extra.theme.foreground);
+
+        y += 2;
+
+        const width_forth = width / 3.5;
+
+        _ = rgui.label(.{
+            .x = self.opts.extra.theme.padding + 4,
+            .y = y,
+            .height = self.opts.extra.theme.font_size,
+            .width = width_forth / 2,
+        }, "Line");
+
+        _ = rgui.label(.{
+            .x = self.opts.extra.theme.padding + 4 + width_forth / 2,
+            .y = y,
+            .height = self.opts.extra.theme.font_size,
+            .width = width_forth / 2,
+        }, "Column");
+
+        _ = rgui.label(.{
+            .x = self.opts.extra.theme.padding + width_forth + 4,
+            .y = y,
+            .height = self.opts.extra.theme.font_size,
+            .width = width - width_forth,
+        }, "File");
+        y += self.opts.extra.theme.font_size;
+
+        panel_rec.y = y;
+        panel_rec.height = @as(f32, @floatFromInt(self.window.heitht)) - panel_rec.y - self.opts.extra.theme.padding;
+        panel_rec.width = @as(f32, @floatFromInt(self.window.width)) - self.opts.extra.theme.padding * 2;
+
+        rgui.setStyle(.default, .{ .control = .border_width }, 2);
+        _ = rgui.scrollPanel(panel_rec, null, content_rec, &panel_scroll, &panel_view);
+        rgui.setStyle(.default, .{ .control = .border_width }, 0);
+        rl.beginScissorMode(@intFromFloat(panel_view.x), @intFromFloat(panel_view.y),
+            @intFromFloat(panel_view.width), @intFromFloat(panel_view.height));
+
+        var content_height: f32 = y;
+        var content_width: f32 = 0;
 
         var iter = self.trace.trace.first;
 
@@ -196,32 +232,99 @@ pub fn draw(self: *Ui) !void {
                 continue;
             }
 
-            const path_res = if (self.toggle_full_path) i.data.file_name else std.fs.path.basename(i.data.file_name);
+            const path = if (self.toggle_full_path) i.data.file_name else std.fs.path.basename(i.data.file_name);
 
-            const str = try std.fmt.allocPrintZ(std.heap.page_allocator, "{s} at {}:{}", .{ path_res, i.data.line, i.data.column});
-            defer std.heap.page_allocator.free(str);
-            rl.DrawTextEx(self.font, @ptrCast(str), .{
-                .x = 10 + panelScroll.x,
-                .y = @floatFromInt(contentHeight)
-            }, @as(f32, @floatFromInt(self.font_size)) - 2, self.spacing, self.fg_color);
-            
-            const w = rl.MeasureTextEx(self.font, @ptrCast(str), @as(f32, @floatFromInt(self.font_size)) - 2, self.spacing);
+            var str = try std.fmt.allocPrintZ(allocator, "{}", .{i.data.line});
+            _ = rgui.label(.{
+                .x = self.opts.extra.theme.padding + panel_scroll.x + 4,
+                .y = content_height + 4 + panel_scroll.y,
+                .height = self.opts.extra.theme.font_size,
+                .width = width_forth / 2,
+            }, str);
+            allocator.free(str);
 
-            if (w.x > @as(f32, @floatFromInt(contentWidth))) {
-                contentWidth = @intFromFloat(w.x);
+            str = try std.fmt.allocPrintZ(allocator, "{}", .{i.data.column});
+            _ = rgui.label(.{
+                .x = self.opts.extra.theme.padding + panel_scroll.x + 4 + width_forth / 2,
+                .y = content_height + 4 + panel_scroll.y,
+                .height = self.opts.extra.theme.font_size,
+                .width = width_forth,
+            }, str);
+            allocator.free(str);
+
+            str = try std.fmt.allocPrintZ(allocator, "{s}", .{path});
+            defer allocator.free(str);
+
+            rl.drawTextEx(self.font, str, .{
+                .x = self.opts.extra.theme.padding + panel_scroll.x + 4 + width_forth,
+                .y = content_height + 4 + panel_scroll.y,
+            }, self.opts.extra.theme.font_size, self.opts.extra.theme.spacing,
+                self.opts.extra.theme.foreground);
+
+            const w = rl.measureTextEx(self.font, str, self.opts.extra.theme.font_size,
+                self.opts.extra.theme.spacing);
+
+            if (w.x + width_forth > content_width) {
+                content_width = w.x + 8 + width_forth;
             }
 
-            contentHeight += @intFromFloat(w.y);
+            content_height += w.y;
         }
-        contentHeight -= 30;
 
-        panelContentRec.height = @as(f32, @floatFromInt(contentHeight));
-        panelContentRec.width = @as(f32, @floatFromInt(contentWidth));
+        content_rec.height = content_height - y + 8;
+        content_rec.width = content_width;
 
-        rl.EndScissorMode();
-
-        rl.EndDrawing();
+        rl.endScissorMode();
+        rl.endDrawing();
     }
 
-    rl.CloseWindow();
+    rl.closeWindow();
+}
+
+fn drawTitle(self: *Ui, icon: ?rl.Texture) !f32 {
+    const width: f32 = @as(f32, @floatFromInt(self.window.width)) - 
+        self.opts.extra.theme.padding * 2;
+    if (icon) |ic| {
+        rl.drawTexture(ic,
+            @as(i32, @intFromFloat(self.opts.extra.theme.padding)),
+            @as(i32, @intFromFloat(self.opts.extra.theme.padding)), rl.Color.white);
+    }
+
+    var y: f32 = self.opts.extra.theme.padding;
+    var x: f32 = self.opts.extra.theme.padding + self.opts.extra.header.icon_size.x;
+    x += self.opts.extra.theme.padding;
+
+    const phrase = self.opts.extra.header.catch_phrases[self.phrase_index];
+
+    const prev_height = rgui.getStyle(.default, .{ .default = .text_size });
+    rgui.setStyle(.default, .{ .default = .text_size },
+        @intFromFloat(self.opts.extra.header.title_size));
+
+    _ = rgui.label(.{
+        .x = x,
+        .y = y,
+        .height = self.opts.extra.header.title_size,
+        .width = width - self.opts.extra.header.icon_size.x,
+    }, phrase);
+
+    rgui.setStyle(.default, .{ .default = .text_size }, prev_height);
+
+    y += rl.measureTextEx(self.font, phrase, self.opts.extra.header.title_size,
+        self.opts.extra.theme.padding).y;
+
+    const str = try std.fmt.allocPrintZ(std.heap.page_allocator, "{s} {s} {s}", .{
+        self.opts.app_name,
+        if (self.has_panicked) self.opts.panic_message else self.opts.error_message,
+        if (self.has_panicked) "panic" else "error"
+    });
+    defer std.heap.page_allocator.free(str);
+
+    _ = rgui.label(.{
+        .x = x,
+        .y = y,
+        .height = self.opts.extra.header.title_size,
+        .width = width - self.opts.extra.header.icon_size.x,
+    }, str);
+
+    return self.opts.extra.header.icon_size.y + self.opts.extra.theme.padding * 2;
 }

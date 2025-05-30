@@ -14,7 +14,7 @@ var in_panic: bool = false;
 
 pub fn panic(fmt: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) noreturn {
     if (in_panic) {
-        std.debug.print("DOUBLE PANICKED {s}\n", .{fmt});
+        std.debug.print("DOUBLE PANIC {s}\n", .{fmt});
         std.process.abort();
     }
 
@@ -24,17 +24,24 @@ pub fn panic(fmt: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) 
     const allocator = arena.allocator();
 
     var tr = StackTrace.init(allocator);
-    tr.populateCurrent(return_addr orelse @returnAddress()) catch |err| {
-        std.log.err("{s}", .{@errorName(err)});
-        std.process.abort();
+    tr.populateCurrent(return_addr orelse @returnAddress()) catch {
+        std.debug.defaultPanic(fmt, return_addr orelse @returnAddress());
     };
 
-    var ui = Ui.init(fmt, &tr);
+    const fmt_c = allocator.dupeZ(u8, fmt) catch {
+        std.debug.defaultPanic(fmt, return_addr orelse @returnAddress());
+    };
+
+    var ui = Ui.init(fmt_c, &tr) catch {
+        std.debug.defaultPanic(fmt, return_addr orelse @returnAddress());
+    };
     ui.has_panicked = true;
     defer arena.reset(.free_all);
     defer ui.deinit();
 
-    ui.draw() catch std.process.abort();
+    ui.draw() catch {
+        std.debug.defaultPanic(fmt, return_addr orelse @returnAddress());
+    };
 
     std.process.abort();
 }
@@ -64,17 +71,19 @@ pub fn callMain() u8 {
                     const allocator = arena.allocator();
 
                     var tr = StackTrace.init(allocator);
-                    tr.populate(trace) catch |err2| {
-                        std.log.err("{s}", .{@errorName(err2)});
+                    tr.populate(trace) catch {
+                        std.debug.dumpStackTrace(trace.*);
                         return 1;
                     };
 
-                    var ui = Ui.init(@errorName(err), &tr);
+                    var ui = Ui.init(@errorName(err), &tr) catch {
+                        std.debug.dumpStackTrace(trace.*);
+                        return 1;
+                    };
                     defer _ = arena.reset(.free_all);
-                    defer ui.deinit();
 
-                    ui.draw() catch |err2| {
-                        std.log.err("{s}", .{@errorName(err2)});
+                    ui.draw() catch {
+                        std.debug.dumpStackTrace(trace.*);
                         return 1;
                     };
                 }
