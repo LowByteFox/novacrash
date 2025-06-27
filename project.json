@@ -1,0 +1,18 @@
+{
+  "langrev": "1",
+  "warnings": [ "no-unused" ],
+  "dependency-search-paths": [ "lib" ],
+  "dependencies": [ "raylib55", "raygui", "novacrash" ],
+  "authors": [ "LowByteFox" ],
+  "version": "0.1.0",
+  "sources": [ "example/**" ],
+  "test-sources": [ "test/**" ],
+  "output": "build",
+  "targets": {
+    "novacrash": {
+      "type": "executable"
+    }
+  },
+  "cpu": "generic",
+  "opt": "O0"
+}
