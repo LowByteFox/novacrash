@@ -1,6 +1,7 @@
 module novacrash;
 
 import std::io;
+import std::core::builtin;
 import novacrash::trace;
 import novacrash::ui;
 
@@ -28,7 +29,10 @@ fn void nova_panic(String msg, String file, String fun, uint line) @if(env::NATI
     }
 
     Ui ui;
-    ui.init(msg, file, fun, line, &trace);
+    if (catch ui.init(msg, file, fun, line, &trace)) {
+        builtin::print_backtrace(msg, 5);
+        $$trap();
+    }
     if (catch ui.draw()) $$trap();
 
     in_panic = false;
@@ -53,6 +57,6 @@ fn void nova_panic(String msg, String file, String fun, uint line) @if(!env::NAT
     $$trap();
 }
 
-fn void setup() {
+fn void setup() @init {
     builtin::panic = &nova_panic;
 }
