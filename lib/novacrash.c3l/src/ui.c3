@@ -246,6 +246,7 @@ fn void? draw(Ui *self)
 
         foreach (i, &tr : self.trace.backtrace) {
             if (i < 6) continue;
+            if (tr.function == "???") continue;
             @pool() {
                 Path file;
                 if (tr.has_file()) { file = path::temp(tr.file)!; }
@@ -306,7 +307,6 @@ fn float Ui.draw_title(&self) @private {
         x = x * 2 + self.o.header.icon_size.x;
         to_sub = self.o.header.icon_size.x;
     }
-
     
     ZString phrase = self.o.header.catch_phrases[self.phrase_index];
     int prev_height = rg::guiGetStyle(DEFAULT, 16);
@@ -329,7 +329,9 @@ fn float Ui.draw_title(&self) @private {
             .height = self.o.header.title_size,
             .width = width - to_sub,
         }, str);
+        y += rl::measureTextEx(self.font, str, self.o.header.title_size, 
+                self.o.theme.padding).y;
     };
 
-    return self.o.header.icon_size.y + self.o.theme.padding * 2;
+    return (to_sub == 0 ? y : self.o.header.icon_size.y) + self.o.theme.padding * 2;
 }
