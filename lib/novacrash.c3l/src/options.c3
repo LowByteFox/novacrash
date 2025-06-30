@@ -8,7 +8,9 @@ struct Window {
 }
 
 struct Theme {
-    rl::Color background, foreground, ambient;
+    rl::Color background;
+    rl::Color foreground;
+    rl::Color ambient;
     char[] font;
     float spacing, font_size, padding;
 }

@@ -9,6 +9,7 @@ import std::collections::maybe;
 import std::math::random;
 import novacrash::options;
 import libc;
+import std::core::env;
 
 struct Ui {
     String msg, file, fun;
@@ -24,7 +25,7 @@ struct Ui {
     int w, h;
 }
 
-macro @set_default(#cfg, $value) @private => #cfg = #cfg ?: ($typeof(#cfg)) $value;
+macro @set_default(#cfg, #value) @private => #cfg = #cfg ?: ($typeof(#cfg)) #value;
 
 macro @set_default_color(#cfg, $value) @private {
     #cfg.r = #cfg.r ?: $value.r;
@@ -53,11 +54,13 @@ fn void? Ui.init(&self, String msg, String file, String fun, uint line, StackTra
     @set_default(options::cfg.theme.font_size, 20);
     @set_default(options::cfg.theme.padding, 10);
 
-    @set_default(options::cfg.header.catch_phrases, {"XXX", "!!!"});
     @set_default(options::cfg.header.crash_icon, {});
     @set_default(options::cfg.header.icon_size.x, 128);
     @set_default(options::cfg.header.icon_size.y, 128);
     @set_default(options::cfg.header.title_size, 48);
+
+    static ZString[] options = {"XXX", "!!!"};
+    @set_default(options::cfg.header.catch_phrases, options);
 
     self.msg = msg;
     self.file = file;
@@ -66,8 +69,10 @@ fn void? Ui.init(&self, String msg, String file, String fun, uint line, StackTra
     self.trace = trace;
     self.o = &options::cfg;
 
+$if env::OS_TYPE != WIN32 && !env::os_is_darwin():
     ZString session_type = libc::getenv("XDG_SESSION_TYPE") ?: "tty";
     if (session_type == "tty") return RAYLIB_DIDNT_INIT?;
+$endif
 
     if (novacrash::uses_raylib) rl::closeWindow();
 
@@ -101,7 +106,7 @@ fn void? Ui.init(&self, String msg, String file, String fun, uint line, StackTra
     self.phrase_index = random::rand_in_range(0, self.o.header.catch_phrases.len - 1);
 }
 
-fn void? Ui.draw(&self)
+fn void? draw(Ui *self)
 {
 
     Rectangle panel_rec = { 10, 0, (float) rl::getScreenWidth() - 20, 0 };
@@ -290,21 +295,25 @@ fn void? Ui.draw(&self)
 
 fn float Ui.draw_title(&self) @private {
     float width = self.w - self.o.theme.padding * 3;
+    float y = self.o.theme.padding;
+    float x = self.o.theme.padding;
+    float to_sub = 0;
+
     if (self.icon.has_value) {
         Texture t = self.icon.get()!!;
 
         rl::drawTexture(t, (int) self.o.theme.padding, (int) self.o.theme.padding, rl::WHITE);
+        x = x * 2 + self.o.header.icon_size.x;
+        to_sub = self.o.header.icon_size.x;
     }
 
-    float y = self.o.theme.padding;
-    float x = self.o.theme.padding * 2 + self.o.header.icon_size.x;
     
     ZString phrase = self.o.header.catch_phrases[self.phrase_index];
     int prev_height = rg::guiGetStyle(DEFAULT, 16);
     rg::guiSetStyle(DEFAULT, 16, (int) self.o.header.title_size);
     rg::guiLabel({ .x = x, .y = y,
             .height = self.o.header.title_size,
-            .width = width - self.o.header.icon_size.x
+            .width = width - to_sub,
         }, phrase);
 
     rg::guiSetStyle(DEFAULT, 16, prev_height);
@@ -318,7 +327,7 @@ fn float Ui.draw_title(&self) @private {
             .x = x,
             .y = y,
             .height = self.o.header.title_size,
-            .width = width - self.o.header.icon_size.x,
+            .width = width - to_sub,
         }, str);
     };
 

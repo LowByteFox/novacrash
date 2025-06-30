@@ -8,12 +8,9 @@ fn int main(String[] args)
     options::cfg.app_name = "Example";
     options::cfg.message = "has reached a";
     options::cfg.window = {
-        .title = "Panic Report",
-    };
-
-    options::cfg.theme = {
-        .font = $embed("./assets/Ubuntu-R.ttf"),
-        .font_size = 22,
+        .title = "Crash Report",
+        .width = 500,
+        .height = 750,
     };
 
     options::cfg.header = {
@@ -23,7 +20,10 @@ fn int main(String[] args)
         .title_size = 32,
     };
 
-    *(int*) 4 = 4;
+    options::cfg.theme = {
+        .font = $embed("./assets/Ubuntu-R.ttf"),
+        .font_size = 22,
+    };
 
-    return 1;
+    unreachable("Manual panic");
 }
