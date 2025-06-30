@@ -23,5 +23,7 @@ fn int main(String[] args)
         .title_size = 32,
     };
 
-    unreachable("Manual panic");
+    *(int*) 4 = 4;
+
+    return 1;
 }
